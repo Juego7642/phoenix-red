@@ -2,6 +2,23 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+int minnn(int a, int b) {
+	if(a<b) return a;
+	else return b;
+}
+void delay_ms(int milliseconds)
+{
+#ifdef _WIN32
+    Sleep(milliseconds);              // milliseconds
+#else
+    usleep(milliseconds * 1000);      // microseconds
+#endif
+}
 /*
     Multipliers stored as integers to avoid floats:
     20 = 2.0x (super effective)
@@ -123,20 +140,192 @@ struct BattleContext{
 };
 
 void turn_processing(Pokemon *A, Pokemon *B, move *MoveA);
+double type_effectiveness(ElementalType typeA, ElementalType typeB){
+	double effectiveness = type_chart[typeA-1][typeB-1]/10.0;
+	return effectiveness;
+}
+int damage_calculator(Pokemon *pokemon, Pokemon *pokemonB,
+                      move *Move, double random_factor)
+{
+	if (pokemonB->defense <= 0) pokemonB->defense = 1;
+	int damage = (int)(
+		(((((2 * pokemon->level) / 5.0 + 2)
+		* Move->BP
+		* pokemon->attack / pokemonB->defense) / 50.0 + 2)
+		* ((pokemon->type == Move->type) ? 1.5 : 1.0)
+		* type_effectiveness(Move->type, pokemonB->type)
+		* random_factor)
+	);
+    return damage;
+}
+int special_damage_calculator(Pokemon *pokemon,Pokemon *pokemonB,
+                              move *Move, double random_factor)
+{
+	if (pokemonB->special_defense <= 0) pokemonB->special_defense = 1;
+    int damage = (int)(
+        (((((2 * pokemon->level) / 5.0 + 2)
+        * Move->BP
+        * pokemon->special_attack
+        / pokemonB->special_defense) / 50.0 + 2)
+        * ((pokemon->type == Move->type) ? 1.5 : 1.0)
+        * type_effectiveness(Move->type, pokemonB->type)
+        * random_factor)
+    );
+
+    return damage;
+}
+
+int get_move_weight(move Move, Pokemon target)
+{
+    if (Move.Current_PP <= 0) {
+        return 0;
+    }
+
+    // Ignore status moves for now
+    if (Move.category == CATEGORY_STATUS) {
+        return 0;
+    }
+
+    if (Move.BP <= 0) {
+        return 0;
+    }
+
+    // Prevent invalid array index for TYPE_NONE
+    if (Move.type == TYPE_NONE || target.type == TYPE_NONE) {
+        return 0;
+    }
+
+    int effectiveness =
+        type_chart[Move.type - 1][target.type - 1];
+
+    switch (effectiveness) {
+        case 20:
+            return 40;
+
+        case 10:
+            return 10;
+
+        case 5:
+            return 2;
+
+        case 0:
+            return 0;
+
+        default:
+            return 10;
+    }
+}
+void turn_processing(Pokemon *A, Pokemon *B, move *MoveA)
+{
+    if (MoveA->Current_PP <= 0) {
+        printf("%s has no PP left!\n", MoveA->Name);
+        return;
+    }
+
+    printf("\n%s used %s!\n", A->Name, MoveA->Name);
+
+    MoveA->Current_PP--;
+	if (B->evasiveness <= 0) B->evasiveness = 1;
+    int accuracy = MoveA->Accuracy * A->accuracy / B->evasiveness;
+
+    if (accuracy > 100)
+        accuracy = 100;
+
+    if (rand() % 100 >= accuracy) {
+        printf("%s's attack missed!\n", A->Name);
+        return;
+    }
+
+    double random_factor =
+        ((rand() % 39) + 217) / 255.0;
+
+    int damage = 0;
+
+    if (MoveA->category == CATEGORY_PHYSICAL) {
+        damage = damage_calculator(A, B, MoveA, random_factor);
+    }
+    else if (MoveA->category == CATEGORY_SPECIAL) {
+        damage = special_damage_calculator(A, B, MoveA, random_factor);
+    }
+    else {
+        printf("Status moves are not implemented yet.\n");
+        return;
+    }
+
+	printf("%s took %d damage.\n\n", B->Name, minnn(B->current_health, damage));
+
+    B->current_health -= damage;
+
+    if (B->current_health < 0)
+        B->current_health = 0;
+	
+
+    double effectiveness =
+        type_effectiveness(MoveA->type, B->type);
+
+    if (effectiveness > 1.0)
+        printf("It was super effective!\n");
+    else if (effectiveness == 0.0)
+        printf("It had no effect!\n");
+    else if (effectiveness < 1.0)
+        printf("It was not very effective!\n");
+
+}
 int main(){
 	srand(time(NULL));
-	Pokemon Bulbasaur;
-	Pokemon Charizard;
-
+	move Tackle = {40, 100, 35, 35, "Tackle", TYPE_NORMAL, CATEGORY_PHYSICAL};
+	move Vine_Whip = {45, 100, 25, 25, "Vine Whip", TYPE_GRASS, CATEGORY_PHYSICAL};
+	move Scratch = {40, 100, 35, 35, "Scratch", TYPE_NORMAL, CATEGORY_PHYSICAL};
+	move Take_Down = {90, 85, 15, 15, "Take Down", TYPE_NORMAL, CATEGORY_PHYSICAL};
+	move Ember = {40, 100, 35, 35, "Ember", TYPE_FIRE, CATEGORY_PHYSICAL};
+	Pokemon Bulbasaur = {
+        .Name = "Bulbasaur",
+        .current_health = 45,
+        .max_health = 45,
+        .speed = 45,
+        .defense = 49,
+        .attack = 49,
+        .special_attack = 65,
+        .special_defense = 65,
+        .accuracy = 100,
+        .max_accuracy = 100,
+        .evasiveness = 100,
+        .type = TYPE_GRASS,
+        .max_evasiveness = 100,
+        .Moves = {Tackle, Scratch, Vine_Whip, Take_Down},
+        .level = 5,
+        .minor_status_effects = 0
+    };
+    Pokemon Charmander = {
+        .Name = "Charmander",
+        .current_health = 39,
+        .max_health = 39,
+        .speed = 25,
+        .defense = 25,
+        .attack = 25,
+        .special_attack = 25,
+        .special_defense = 25,
+        .accuracy = 100,
+        .max_accuracy = 100,
+        .evasiveness = 100,
+        .type = TYPE_FIRE,
+        .max_evasiveness = 100,
+        .Moves = {Tackle, Scratch, Ember, Take_Down},
+        .level = 5,
+        .minor_status_effects = 0
+    };
 	context contxt;
 	contxt.a = Bulbasaur;
-	contxt.b = Charizard;
+	contxt.b = Charmander;
 	//announce enemy pokemon
 	printf("Enemy pokemon appeared\n");
+	//announce player turn.
+	printf("Go! %s\n", contxt.a.Name);
 	while(contxt.a.current_health > 0 && contxt.b.current_health > 0){
-	
-		//announce player turn.
-		printf("Go! %s\n", contxt.a.Name);
+		int zz=1;
+		printf("\n--------ROUND %d--------\n", zz++);
+		printf("\n%s : (%d/%d).\n", contxt.b.Name, contxt.b.current_health, contxt.b.max_health);
+		printf("%s : (%d/%d).\n\n", contxt.a.Name, contxt.a.current_health, contxt.a.max_health);
 		for(int i=0; i<4; i++){
 			printf("%d. %s PP: %d/%d\n",
 	       	i + 1,
@@ -146,46 +335,40 @@ int main(){
 		}printf("\n");
 		//list moves
 		//player makes a choice.
-		char s[100];   // move choice
+		int zzz;   // move choice
 		int valid = 0;
 		
 		while (!valid) {
-		    printf("Enter move name: ");
-		    scanf("%99s", s);
-		    for (int i = 0; i < 4; i++) {
-		        if (strcmp(s, contxt.a.Moves[i].Name) == 0 &&
-		            contxt.a.Moves[i].Current_PP > 0) {
-		            contxt.player_a_active_move =
-		                &contxt.a.Moves[i];
+		    printf("Enter move number: ");
+		    scanf("%d", &zzz);
+			if(((zzz>=1) && (zzz<=4)) && contxt.a.Moves[zzz-1].Current_PP>0) {
+					contxt.player_a_active_move = &contxt.a.Moves[zzz-1];
 		            valid = 1;
-		            break;
-		        }
-		    }
+		        	break;
+			}
+		    //     if (contxt.a.Moves[i].Current_PP > 0) {
+		    //         contxt.player_a_active_move =
+		    //             &contxt.a.Moves[i];
+		    //         valid = 1;
+		    //         break;
+		    //     }
+		    // }
 		    if (!valid) {
 		        printf("Invalid move or no PP left.\n");
 		    }
 		}
 		//move selection done.
 		//Now we must head on to processing the move.
-		turn_processing(&contxt.a, &contxt.b, contxt.pokemon_a_active_move);
-		//check if someone died
-		//
-		if(contxt.a.current_health <= 0){
-			printf("%s fainted.\n", contxt.a.Name);
-		}
-		if(contxt.b.current_health <= 0){
-			printf("%s fainted.\n", contxt.b.Name);
-		}
-		//enemy uses move.
-		//
-		//
-		//Okay time to code enemy logic
-		//
-		//
-		//
-		//
-		//
-		//first define move weights
+		// turn_processing(&contxt.a, &contxt.b, contxt.player_a_active_move);
+		// //check if someone died
+		// //
+		// if(contxt.a.current_health <= 0){
+		// 	printf("%s fainted.\n", contxt.a.Name);
+		// }
+		// if(contxt.b.current_health <= 0){
+		// 	printf("%s fainted.\n", contxt.b.Name);
+		// }
+
 		int move_weights[4];
 		//get move weights (priority)
 		move_weights[0] = get_move_weight(contxt.b.Moves[0], contxt.a);
@@ -198,91 +381,70 @@ int main(){
 			if(move_weights[i] > move_weights[max_weight_index])
 				max_weight_index = i;
 		}
-		//assign that move to active
 		contxt.player_b_active_move = &contxt.b.Moves[max_weight_index];
-		//each move will have a weight e.g. how much it makes sense to use this move 
-		//Basically we have to code enemy AI here
-		//go back to step 2 (player turn)
+		if (contxt.a.speed >= contxt.b.speed) {
+			// Player attacks first
+			delay_ms(2000);
+			turn_processing(&contxt.a, &contxt.b,
+							contxt.player_a_active_move);
+
+			if (contxt.b.current_health <= 0) {
+				printf("%s fainted!\n", contxt.b.Name);
+				break;
+			}
+			delay_ms(1000);
+			// Enemy attacks second
+			turn_processing(&contxt.b, &contxt.a,
+							contxt.player_b_active_move);
+
+			if (contxt.a.current_health <= 0) {
+				printf("%s fainted!\n", contxt.a.Name);
+				break;
+			}
+			delay_ms(1000);
+		}
+		else {
+			// Enemy attacks first
+			delay_ms(1000);
+			turn_processing(&contxt.b, &contxt.a,
+							contxt.player_b_active_move);
+
+			if (contxt.a.current_health <= 0) {
+				printf("%s fainted!\n", contxt.a.Name);
+				break;
+			}
+			delay_ms(1000);
+			// Player attacks second
+			turn_processing(&contxt.a, &contxt.b,
+							contxt.player_a_active_move);
+
+			if (contxt.b.current_health <= 0) {
+				printf("%s fainted!\n", contxt.b.Name);
+				break;
+			}
+			delay_ms(1000);
+		}
+		//assign that move to active
+		// if (contxt.b.current_health <= 0) {
+		// 	printf("%s fainted.\n", contxt.b.Name);
+		// 	break;
+		// }
+		// turn_processing(
+		// 	&contxt.b,                       // attacker
+		// 	&contxt.a,                       // defender
+		// 	contxt.player_b_active_move      // selected move
+		// );
+		// if (contxt.a.current_health <= 0) {
+    	// 	printf("%s fainted.\n", contxt.a.Name);
+    	// 	break;
+		// }
+		// //each move will have a weight e.g. how much it makes sense to use this move 
+		// //Basically we have to code enemy AI here
+		// //go back to step 2 (player turn)
 	}
 		//this goes on until one of them dies
 	return 0;
 }
 
-double type_effectiveness(ElementalType typeA, ElementalType typeB){
-	double effectiveness = type_chart[typeA-1][typeB-1]/10.0;
-	return effectiveness;
-}
-int damage_calculator(Pokemon pokemon, Pokemon pokemonB, move Move, int critical){
-	int damage =((((2*pokemon.level*critical)/5 + 2) * BP *  attack/defense)/50 + 2) * ((pokemon.type == Move.type) ? (1.5) : (1)) * type_effectiveness(Move.type, pokemonB.type);
-	return damage;
-}
-int special_damage_calculator(Pokemon pokemon, Pokemon pokemonB, move Move, int critical){
-	int damage =((((2*pokemon.level*critical)/5 + 2) * BP *  special_attack/special_defense)/50 + 2) * ((pokemon.type == Move.type) ? (1.5) : (1)) * type_effectiveness(Move.type, pokemonB.type);
-	return damage;
-}
 
-int get_move_weight(move Move, Pokemon target){
-	if (Move.Current_PP == 0){
-		return 0;
-	}
-	//ignore status moves from now
-	if (Move.category == MoveCategory.CATEGORY_STATUS){
-		return 0;
-	}
-	if (Move.BP <= 0){
-		return 0;
-	}
-	int effectiveness = type_effectiveness(Move.type, target.type);
-	
-	switch (effectiveness) {
-		case 20:
-			return 40;
-
-		case 10:
-			return 10;
-		case 5: 
-			return 2;
-		case 0:
-			return 0;
-
-		default: 
-			return 10;
-	}
-}
-	void turn_processing(Pokemon *A, Pokemon *B, move *MoveA){
-		if(MoveA->category == CATEGORY_PHYSICAL){
-			int damage = damage_calculator(A, B, MoveA, ((rand() % (255-217+1)) + 217)/255);
-			int accuracy = MoveA->Accuracy * (A->accuracy / B->evasiveness);
-			if(rand() < accuracy){
-				printf("%s used %s!\n", A->Name, MoveA->Name);
-				B->current_health -= damage;
-				MoveA->Current_PP -=1;
-				if(type_effectiveness(MoveA->type, B->type) > 10)
-					printf("It was super effective!\n");
-				else if(type_effectiveness(MoveA->type, B->type) < 10)
-					printf("It was not very effective!\n");
-				// move lands
-			}else{
-				// miss
-				printf("%s's attack missed!\n", A->Name);
-			}
-		}
-		if(MoveA->category == CATEGORY_SPECIAL){
-			int damage = special_damage_calculator(A, B, MoveA, ((rand() % (255-217+1)) + 217)/255);
-			int accuracy = MoveA->Accuracy * (A->accuracy / B->evasiveness);
-			if(rand() < accuracy){
-				printf("%s used %s!\n", A->Name, MoveA->Name);
-				B->current_health -= damage;
-				MoveA->Current_PP -=1;
-				if(type_effectiveness(MoveA->type, B->type) > 10)
-					printf("It was super effective!\n");
-				else if(type_effectiveness(MoveA->type, B->type < 10)
-					printf("It was not very effective!\n");
-				// move lands
-			}else{
-				// miss
-				printf("%s's attack missed!\n", A->Name);
-			}
-		}
-	}
 
