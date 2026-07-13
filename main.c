@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 /*
@@ -52,7 +53,7 @@ typedef enum{
 	TYPE_POISON,
 	TYPE_GROUND,
 	TYPE_FLYING,
-	TYPE_PHYSIC,
+	TYPE_PSYCHIC,
 	TYPE_BUG,
 	TYPE_ROCK,
 	TYPE_GHOST,
@@ -69,6 +70,7 @@ typedef enum{
 } MoveCategory;
 
 typedef enum{
+	STATUS_NONE,
 	STATUS_POISON,
 	STATUS_BURN,
 	STATUS_PARALYSIS,
@@ -116,8 +118,8 @@ typedef struct BattleContext context;
 struct BattleContext{
 	Pokemon a;
 	Pokemon b;
-	Move player_a_active_move;
-	Move player_b_active_move;
+	move *player_a_active_move;
+	move *player_b_active_move;
 };
 
 void turn_processing(Pokemon *A, Pokemon *B, move *MoveA);
@@ -131,28 +133,41 @@ int main(){
 	contxt.b = Charizard;
 	//announce enemy pokemon
 	printf("Enemy pokemon appeared\n");
-	while(contxt.a.current_health >= 0 || context.b.current_health >= 0){
+	while(contxt.a.current_health > 0 && contxt.b.current_health > 0){
 	
 		//announce player turn.
-		printf("Go! %s\n");
+		printf("Go! %s\n", contxt.a.Name);
 		for(int i=0; i<4; i++){
-			printf("%s ", contxt.a.Moves[i]);
+			printf("%d. %s PP: %d/%d\n",
+	       	i + 1,
+		   	contxt.a.Moves[i].Name,
+		   	contxt.a.Moves[i].Current_PP,
+		   	contxt.a.Moves[i].Max_PP);
 		}printf("\n");
 		//list moves
 		//player makes a choice.
-		char s; //move choice
-		while((!strcmp(s, Moves[0].Name) && Moves[0].Current_PP > 0) || (!strcmp(s, Moves[1].Name) && Moves[1].Current_PP > 0) || (!strcmp(s, Moves[2].Name) && Moves[2].Current_PP > 0) || (!strcmp(s, Moves[3].Name) && Moves[3].Current_PP > 0)){
-			scanf("%s", &s);
-		}
-		for(int i=0; i < 4; i++){
-			if(strcmp(s,Moves[i].name) == 0){
-				contxt.player_a_active_move = Moves[i];
-			}
-	
+		char s[100];   // move choice
+		int valid = 0;
+		
+		while (!valid) {
+		    printf("Enter move name: ");
+		    scanf("%99s", s);
+		    for (int i = 0; i < 4; i++) {
+		        if (strcmp(s, contxt.a.Moves[i].Name) == 0 &&
+		            contxt.a.Moves[i].Current_PP > 0) {
+		            contxt.player_a_active_move =
+		                &contxt.a.Moves[i];
+		            valid = 1;
+		            break;
+		        }
+		    }
+		    if (!valid) {
+		        printf("Invalid move or no PP left.\n");
+		    }
 		}
 		//move selection done.
 		//Now we must head on to processing the move.
-		turn_processing(contxt.a, contxt.b, contxt.pokemon_a_active_move);
+		turn_processing(&contxt.a, &contxt.b, &contxt.pokemon_a_active_move);
 		//check if someone died
 		//
 		if(contxt.a.current_health <= 0){
