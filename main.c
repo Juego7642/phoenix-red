@@ -167,6 +167,8 @@ int main(){
 			int accuracy = MoveA->Accuracy * (A->accuracy / B->evasiveness);
 			if(rand() < accuracy){
 				printf("%s used %s!\n", A->Name, MoveA->Name);
+				B->current_health -= damage;
+				MoveA->PP -=1;
 				if(type_effectiveness(MoveA->type, B->type) > 10)
 					printf("It was super effective!\n");
 				else if(type_effectiveness(MoveA->type, B->type < 10)
@@ -182,6 +184,8 @@ int main(){
 			int accuracy = MoveA->Accuracy * (A->accuracy / B->evasiveness);
 			if(rand() < accuracy){
 				printf("%s used %s!\n", A->Name, MoveA->Name);
+				B->current_health -= damage;
+				MoveA->PP -=1;
 				if(type_effectiveness(MoveA->type, B->type) > 10)
 					printf("It was super effective!\n");
 				else if(type_effectiveness(MoveA->type, B->type < 10)
