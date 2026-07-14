@@ -482,7 +482,11 @@ void turn_processing(Pokemon *A, Pokemon *B, move *MoveA)
 			move_status_effect_processing(A,B,MoveA);
 		}
 		
+<<<<<<< HEAD
 		AddBattleMessage("%s took %d damage.\n\n", B->Name, minnn(B->current_health, damage));
+=======
+		AddBattleMessage("%s took %d damage.\n", B->Name, minnn(B->current_health, damage));
+>>>>>>> 5d84fe0 (Update All files)
 		
 		B->current_health -= damage;
 		
@@ -709,4 +713,8 @@ int main(){
 	CloseWindow();
 
 	return 0;
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 5d84fe0 (Update All files)
