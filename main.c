@@ -1,32 +1,203 @@
 #include <stdio.h>
+#include "raylib.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <time.h>
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <unistd.h>
-#endif
+
 int minnn(int a, int b) {
 	if(a<b) return a;
 	else return b;
 }
-void delay_ms(int milliseconds)
-{
-#ifdef _WIN32
-    Sleep(milliseconds);              // milliseconds
-#else
-    usleep(milliseconds * 1000);      // microseconds
-#endif
-}
-/*
-    Multipliers stored as integers to avoid floats:
-    20 = 2.0x (super effective)
-    10 = 1.0x (normal)
-     5 = 0.5x (not very effective)
-     0 = 0.0x (immune)
-*/
 
+#define MAX_MESSAGES 30
+#define MESSAGE_SIZE 256
+#define MESSAGE_DURATION 1.0
+
+char messageBuffer[MAX_MESSAGES][MESSAGE_SIZE];
+
+int messageCount = 0;
+int currentMessage = 0;
+
+double messageStartTime = 0.0;
+int messageTimerStarted = 0;
+
+void AddBattleMessage(const char *format, ...)
+{
+    if (messageCount >= MAX_MESSAGES)
+        return;
+
+    va_list arguments;
+
+    va_start(arguments, format);
+
+    vsnprintf(
+        messageBuffer[messageCount],
+        MESSAGE_SIZE,
+        format,
+        arguments
+    );
+
+    va_end(arguments);
+
+    messageCount++;
+}
+
+int UpdateBattleMessages(void)
+{
+    /* No active messages */
+    if (currentMessage >= messageCount) {
+        messageCount = 0;
+        currentMessage = 0;
+        messageTimerStarted = 0;
+
+        return 0;
+    }
+
+    /* Start timer for the current message */
+    if (!messageTimerStarted) {
+        messageStartTime = GetTime();
+        messageTimerStarted = 1;
+    }
+
+    /* Move to the next message after one second */
+    if (GetTime() - messageStartTime >= MESSAGE_DURATION) {
+        currentMessage++;
+        messageTimerStarted = 0;
+
+        /* All messages are finished */
+        if (currentMessage >= messageCount) {
+            messageCount = 0;
+            currentMessage = 0;
+
+            return 0;
+        }
+    }
+
+    return 1;
+}void DrawWrappedText(
+    const char *text,
+    Rectangle area,
+    int fontSize,
+    int lineSpacing,
+    Color color
+) {
+    char line[512] = "";
+    char word[128] = "";
+
+    int wordLength = 0;
+    float y = area.y;
+
+    for (int i = 0;; i++) {
+        char c = text[i];
+
+        if (c != ' ' && c != '\n' && c != '\0') {
+            if (wordLength < 127)
+                word[wordLength++] = c;
+        }
+        else {
+            word[wordLength] = '\0';
+
+            if (wordLength > 0) {
+                char testLine[512];
+
+                if (line[0] == '\0')
+                    snprintf(testLine, sizeof(testLine), "%s", word);
+                else
+                    snprintf(testLine, sizeof(testLine), "%s %s", line, word);
+
+                if (MeasureText(testLine, fontSize) <= area.width) {
+                    snprintf(line, sizeof(line), "%s", testLine);
+                }
+                else {
+                    DrawText(
+                        line,
+                        (int)area.x,
+                        (int)y,
+                        fontSize,
+                        color
+                    );
+
+                    y += fontSize + lineSpacing;
+
+                    snprintf(line, sizeof(line), "%s", word);
+                }
+            }
+
+            wordLength = 0;
+
+            if (c == '\n') {
+                DrawText(
+                    line,
+                    (int)area.x,
+                    (int)y,
+                    fontSize,
+                    color
+                );
+
+                line[0] = '\0';
+                y += fontSize + lineSpacing;
+            }
+
+            if (c == '\0')
+                break;
+        }
+    }
+
+    if (line[0] != '\0') {
+        DrawText(
+            line,
+            (int)area.x,
+            (int)y,
+            fontSize,
+            color
+        );
+    }
+}
+void DrawBattleTextBox(void)
+{
+    if (currentMessage >= messageCount)
+        return;
+
+    float boxWidth =
+        GetScreenWidth() / 2.0f - 40;
+
+    float boxHeight =
+        GetScreenHeight() / 2.0f - 40;
+
+    Rectangle bar = {
+        20,
+        333,
+        boxWidth,
+        boxHeight
+    };
+
+    DrawRectangleRec(
+        bar,
+        (Color){245, 245, 235, 255}
+    );
+
+    DrawRectangleLinesEx(
+        bar,
+        4,
+        BLACK
+    );
+
+    Rectangle textArea = {
+        bar.x + 15,
+        bar.y + 15,
+        bar.width - 30,
+        bar.height - 30
+    };
+
+    DrawWrappedText(
+        messageBuffer[currentMessage],
+        textArea,
+        22,
+        2,
+        BLACK
+    );
+}
 //                          NOR FIR WAT GRA ELE ICE FIG POI GRO FLY PSY BUG ROC GHO DRA DAR STE FAI
 const int type_chart[18][18] = {
 /*NORMAL  */ { 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,  5,  0, 10, 10,  5, 10 },
@@ -224,7 +395,7 @@ void move_status_effect_processing(Pokemon *A, Pokemon *B, move *MoveA){
 	if(MoveA->effect != STATUS_NONE){
 		if(B->effect == STATUS_NONE && roll <= MoveA->probability){
 			B->effect = MoveA->effect;
-			printf("Status effect applied\n");
+			AddBattleMessage("Status effect applied\n");
 		}
 	}
 	if(MoveA->effect == STATUS_POISON){
@@ -237,7 +408,7 @@ void move_status_effect_processing(Pokemon *A, Pokemon *B, move *MoveA){
 void status_effect_processing(Pokemon *A, Pokemon *B){
 	if(A->effect == STATUS_BURN){
 		A->current_health -= A->max_health/16;
-		printf("%s: %d Damage taken from BURN effect\n", A->Name, A->max_health/16);
+		AddBattleMessage("%s: %d Damage taken from BURN effect\n", A->Name, A->max_health/16);
 	}
 	if(A->effect == STATUS_POISON){
 		int dam = (16-A->status_conditions_rounds_left)*A->max_health/16;
@@ -245,26 +416,26 @@ void status_effect_processing(Pokemon *A, Pokemon *B){
 			A->current_health -= dam;
 		else
 			A->current_health -= 15 * A->max_health/16;
-		printf("%s: %d Damage taken from POISON effect\n", A->Name, dam);
+		AddBattleMessage("%s: %d Damage taken from POISON effect\n", A->Name, dam);
 	}
 	if(A->effect == STATUS_SLEEP){
-		printf("%s is still sleeping.\n", A->Name);
+		AddBattleMessage("%s is still sleeping.\n", A->Name);
 		if(A->status_conditions_rounds_left <= 0){
 			A->effect = STATUS_NONE;
-			printf("\n%s woke up!\n", A->Name);
+			AddBattleMessage("\n%s woke up!\n", A->Name);
 		}
 	}
 	if(A->effect == STATUS_PARALYSIS){
-		printf("%s is paralyzed and may not be able to move!\n", A->Name);
+		AddBattleMessage("%s is still paralyzed!\n", A->Name);
 		A->speed = (75 * A->max_speed)/100;
 	}
 	if(A->effect == STATUS_FREEZE){
 		int roll = rand() % 256;
 		if(roll <= 25){
-			printf("%s thawed and can move again!\n", A->Name);
+			AddBattleMessage("%s thawed and can move again!\n", A->Name);
 			A->effect = STATUS_NONE;
 		}else{
-			printf("%s is still frozen and can't do anything\n", A->Name);
+			AddBattleMessage("%s is still frozen and can't do anything\n", A->Name);
 		}
 	}
 	A->status_conditions_rounds_left -= 1;
@@ -274,11 +445,11 @@ void turn_processing(Pokemon *A, Pokemon *B, move *MoveA)
 	if(!(A->effect == STATUS_SLEEP || (A->effect == STATUS_PARALYSIS && rand() % 100 <= 25) || A->effect == STATUS_FREEZE)){
 
 		if (MoveA->Current_PP <= 0) {
-			printf("%s has no PP left!\n", MoveA->Name);
+			AddBattleMessage("%s has no PP left!\n", MoveA->Name);
 			return;
 		}
 		
-		printf("\n%s used %s!\n", A->Name, MoveA->Name);
+		AddBattleMessage("\n%s used %s!\n", A->Name, MoveA->Name);
 		
 		MoveA->Current_PP--;
 		if (B->evasiveness <= 0) B->evasiveness = 1;
@@ -288,7 +459,7 @@ void turn_processing(Pokemon *A, Pokemon *B, move *MoveA)
         accuracy = 100;
 		
 		if (rand() % 100 >= accuracy) {
-			printf("%s's attack missed!\n", A->Name);
+			AddBattleMessage("%s's attack missed!\n", A->Name);
 			return;
 		}
 		
@@ -306,12 +477,12 @@ void turn_processing(Pokemon *A, Pokemon *B, move *MoveA)
 			move_status_effect_processing(A,B,MoveA);
 		}
 		else {
-			//printf("Status moves are not implemented yet.\n");
+			//AddBattleMessage("Status moves are not implemented yet.\n");
 			//implement status calculaations
 			move_status_effect_processing(A,B,MoveA);
 		}
 		
-		printf("%s took %d damage.\n\n", B->Name, minnn(B->current_health, damage));
+		AddBattleMessage("%s took %d damage.\n\n", B->Name, minnn(B->current_health, damage));
 		
 		B->current_health -= damage;
 		
@@ -323,17 +494,17 @@ void turn_processing(Pokemon *A, Pokemon *B, move *MoveA)
         type_effectiveness(MoveA->type, B->type);
 		
 		if (effectiveness > 1.0)
-        printf("It was super effective!\n");
+        AddBattleMessage("It was super effective!\n");
 		else if (effectiveness == 0.0)
-        printf("It had no effect!\n");
+        AddBattleMessage("It had no effect!\n");
 		else if (effectiveness < 1.0)
-        printf("It was not very effective!\n");
+        AddBattleMessage("It was not very effective!\n");
 	}
 
 }
 int main(){
 	srand(time(NULL));
-	move Tackle = {40, 100, 35, 35, "Tackle", TYPE_NORMAL, CATEGORY_PHYSICAL, STATUS_SLEEP, 50};
+	move Tackle = {40, 100, 35, 35, "Tackle", TYPE_NORMAL, CATEGORY_PHYSICAL, STATUS_PARALYSIS, 100};
 	move Vine_Whip = {45, 100, 25, 25, "Vine Whip", TYPE_GRASS, CATEGORY_PHYSICAL};
 	move Scratch = {40, 100, 35, 35, "Scratch", TYPE_NORMAL, CATEGORY_PHYSICAL};
 	move Take_Down = {90, 85, 15, 15, "Take Down", TYPE_NORMAL, CATEGORY_PHYSICAL};
@@ -382,138 +553,160 @@ int main(){
 	contxt.a = Bulbasaur;
 	contxt.b = Charmander;
 	//announce enemy pokemon
-	printf("Enemy pokemon appeared\n");
+	AddBattleMessage("Enemy pokemon appeared\n");
 	//announce player turn.
-	printf("Go! %s\n", contxt.a.Name);
-	while(contxt.a.current_health > 0 && contxt.b.current_health > 0){
-		int zz=1;
-		printf("\n--------ROUND %d--------\n", zz++);
-		printf("\n%s : (%d/%d).\n", contxt.b.Name, contxt.b.current_health, contxt.b.max_health);
-		printf("%s : (%d/%d).\n\n", contxt.a.Name, contxt.a.current_health, contxt.a.max_health);
-		for(int i=0; i<4; i++){
-			printf("%d. %s PP: %d/%d\n",
-	       	i + 1,
-		   	contxt.a.Moves[i].Name,
-		   	contxt.a.Moves[i].Current_PP,
-		   	contxt.a.Moves[i].Max_PP);
-		}printf("\n");
-		//list moves
-		//player makes a choice.
-		int zzz;   // move choice
-		int valid = 0;
-		
-		while (!valid) {
-			//check if we are asleep or paralyzed
-			if(contxt.a.effect == STATUS_SLEEP || (contxt.a.effect == STATUS_PARALYSIS && rand() % 100 <= 25)){
-				contxt.player_a_active_move = NULL;
-				break;
-			}
-		    printf("Enter move number: ");
-		    scanf("%d", &zzz);
-			if(((zzz>=1) && (zzz<=4)) && contxt.a.Moves[zzz-1].Current_PP>0) {
-				contxt.player_a_active_move = &contxt.a.Moves[zzz-1];
-		    	valid = 1;
-		        break;
-			}
-		    //     if (contxt.a.Moves[i].Current_PP > 0) {
-		    //         contxt.player_a_active_move =
-		    //             &contxt.a.Moves[i];
-		    //         valid = 1;
-		    //         break;
-		    //     }
-		    // }
-		    if (!valid) {
-		        printf("Invalid move or no PP left.\n");
-		    }
-		}
-		//move selection done.
-		//Now we must head on to processing the move.
-		// turn_processing(&contxt.a, &contxt.b, contxt.player_a_active_move);
-		// //check if someone died
-		// //
-		// if(contxt.a.current_health <= 0){
-		// 	printf("%s fainted.\n", contxt.a.Name);
-		// }
-		// if(contxt.b.current_health <= 0){
-		// 	printf("%s fainted.\n", contxt.b.Name);
-		// }
+	//AddBattleMessage("Go! %s\n", contxt.a.Name);
+	InitWindow(800, 450, "Pokemon Battle");
+	SetTargetFPS(60);
 
-		int move_weights[4];
-		//get move weights (priority)
-		move_weights[0] = get_move_weight(contxt.b.Moves[0], contxt.a);
-		move_weights[1] = get_move_weight(contxt.b.Moves[1], contxt.a);
-		move_weights[2] = get_move_weight(contxt.b.Moves[2], contxt.a);
-		move_weights[3] = get_move_weight(contxt.b.Moves[3], contxt.a);
-		int max_weight_index=0;	
-		//sort between them to find the one with the most weight
-		for(int i=0; i<4; i++){
-			if(move_weights[i] > move_weights[max_weight_index])
-				max_weight_index = i;
-		}
-		contxt.player_b_active_move = &contxt.b.Moves[max_weight_index];
-		if (contxt.a.speed >= contxt.b.speed) {
-			// Player attacks first
-			delay_ms(2000);
-			turn_processing(&contxt.a, &contxt.b,
-							contxt.player_a_active_move);
+	Texture2D bulbasaurSprite = LoadTexture("bulbasaur_back.png");
 
-			if (contxt.b.current_health <= 0) {
-				printf("%s fainted!\n", contxt.b.Name);
-				break;
-			}
-			delay_ms(1000);
-			// Enemy attacks second
-			turn_processing(&contxt.b, &contxt.a,
-							contxt.player_b_active_move);
+	Texture2D charmanderSprite = LoadTexture("charmander_front.png");
 
-			if (contxt.a.current_health <= 0) {
-				printf("%s fainted!\n", contxt.a.Name);
-				break;
-			}
-			delay_ms(1000);
-		}
-		else {
-			// Enemy attacks first
-			delay_ms(1000);
-			turn_processing(&contxt.b, &contxt.a,
-							contxt.player_b_active_move);
+	int selectedMove = 0;
 
-			if (contxt.a.current_health <= 0) {
-				printf("%s fainted!\n", contxt.a.Name);
-				break;
-			}
-			delay_ms(1000);
-			// Player attacks second
-			turn_processing(&contxt.a, &contxt.b,
-							contxt.player_a_active_move);
+	int displayedPlayerHP = contxt.a.current_health;
+	int displayedEnemyHP = contxt.b.current_health;
+
+	double lastHpUpdate = 0;
+
+	while (!WindowShouldClose()) {
+
+		int messageActive = UpdateBattleMessages();
+		if (!messageActive){
 			
-			if (contxt.b.current_health <= 0) {
-				printf("%s fainted!\n", contxt.b.Name);
-				break;
+			int hpAnimating = displayedPlayerHP != contxt.a.current_health || displayedEnemyHP != contxt.b.current_health;
+
+			int chosenMove = -1;
+
+			if (!hpAnimating && contxt.a.current_health > 0 && contxt.b.current_health > 0) {
+
+				if (IsKeyPressed(KEY_ONE)) chosenMove = 0;
+				if (IsKeyPressed(KEY_TWO)) chosenMove = 1;
+				if (IsKeyPressed(KEY_THREE)) chosenMove = 2;
+				if (IsKeyPressed(KEY_FOUR)) chosenMove = 3;
 			}
-			delay_ms(1000);
+
+			if (chosenMove != -1 && contxt.a.Moves[chosenMove].Current_PP > 0) {
+				selectedMove = chosenMove;
+				contxt.player_a_active_move = &contxt.a.Moves[selectedMove];
+				int bestEnemyMove = 0;
+				int bestWeight = get_move_weight(contxt.b.Moves[0], contxt.a);
+				for (int i = 1; i < 4; i++) {
+					int weight =
+						get_move_weight(contxt.b.Moves[i], contxt.a);
+					if (weight > bestWeight) {
+						bestWeight = weight;
+						bestEnemyMove = i;
+					}
+				}
+				contxt.player_b_active_move = &contxt.b.Moves[bestEnemyMove];
+
+				if (contxt.a.speed >= contxt.b.speed) {
+						turn_processing(&contxt.a, &contxt.b, contxt.player_a_active_move);
+
+					if (contxt.b.current_health > 0) {
+						turn_processing(&contxt.b, &contxt.a, contxt.player_b_active_move);
+					}
+				}
+				else {
+					turn_processing(&contxt.b, &contxt.a, contxt.player_b_active_move);
+
+					if (contxt.a.current_health > 0) {
+						turn_processing( &contxt.a, &contxt.b, contxt.player_a_active_move);
+					}
+				}
+
+				if (contxt.a.current_health > 0 && contxt.b.current_health > 0) {
+
+					status_effect_processing(&contxt.a, &contxt.b);
+					status_effect_processing(&contxt.b, &contxt.a);
+				}
+
+				if (contxt.a.current_health < 0) contxt.a.current_health = 0;
+
+				if (contxt.b.current_health < 0) contxt.b.current_health = 0;
+			}
+
+			if (GetTime() - lastHpUpdate >= 0.04) {
+
+				if (displayedPlayerHP > contxt.a.current_health)
+					displayedPlayerHP--;
+
+				if (displayedEnemyHP > contxt.b.current_health)
+					displayedEnemyHP--;
+
+				lastHpUpdate = GetTime();
+			}
+
 		}
-		status_effect_processing(&contxt.a, &contxt.b);
-		status_effect_processing(&contxt.b, &contxt.a);
-		//assign that move to active
-		// if (contxt.b.current_health <= 0) {
-		// 	printf("%s fainted.\n", contxt.b.Name);
-		// 	break;
-		// }
-		// turn_processing(
-		// 	&contxt.b,                       // attacker
-		// 	&contxt.a,                       // defender
-		// 	contxt.player_b_active_move      // selected move
-		// );
-		// if (contxt.a.current_health <= 0) {
-    	// 	printf("%s fainted.\n", contxt.a.Name);
-    	// 	break;
-		// }
-		// //each move will have a weight e.g. how much it makes sense to use this move 
-		// //Basically we have to code enemy AI here
-		// //go back to step 2 (player turn)
+		BeginDrawing();
+		ClearBackground(RAYWHITE);
+
+		//textbox
+		DrawBattleTextBox();
+
+		DrawTextureEx(bulbasaurSprite, (Vector2){90, 190}, 0.0f, 3.0f, WHITE);
+		DrawTextureEx(charmanderSprite, (Vector2){560, 40},0.0f, 3.0f, WHITE);
+
+		DrawText(TextFormat("%s  Lv.%d", contxt.b.Name, contxt.b.level),50, 40, 25, BLACK);
+		DrawText(TextFormat("HP: %d/%d", displayedEnemyHP, contxt.b.max_health),50, 70, 22, BLACK);
+
+		/* Player real stats */
+		DrawText(TextFormat("%s  Lv.%d",contxt.a.Name,contxt.a.level),500, 240, 25, BLACK);
+		DrawText(TextFormat("HP: %d/%d",displayedPlayerHP, contxt.a.max_health),500, 270, 22, BLACK);
+
+		Vector2 positions[4] = {
+			{400, 330},
+			{590, 330},
+			{400, 385},
+			{590, 385}
+		};
+
+		for (int i = 0; i < 4; i++) {
+
+			int x = positions[i].x;
+			int y = positions[i].y;
+
+			if (selectedMove == i)
+				DrawRectangle(x, y, 180, 45, LIGHTGRAY);
+
+			DrawRectangleLines(x, y, 180, 45, BLACK);
+
+			DrawText(
+				TextFormat("%d. %s",
+						i + 1,
+						contxt.a.Moves[i].Name),
+				x + 10, y + 5, 18, BLACK
+			);
+
+			DrawText(
+				TextFormat("PP: %d/%d",
+						contxt.a.Moves[i].Current_PP,
+						contxt.a.Moves[i].Max_PP),
+				x + 10, y + 27, 12, DARKGRAY
+			);
+		}
+
+		if (contxt.a.current_health <= 0) {
+			DrawText(
+				TextFormat("%s fainted!", contxt.a.Name),
+				280, 180, 30, RED
+			);
+		}
+		else if (contxt.b.current_health <= 0) {
+			DrawText(
+				TextFormat("%s fainted!", contxt.b.Name),
+				280, 180, 30, RED
+			);
+		}
+		
+		EndDrawing();
 	}
-		//this goes on until one of them dies
+
+	UnloadTexture(bulbasaurSprite);
+	UnloadTexture(charmanderSprite);
+	CloseWindow();
+
 	return 0;
 }
-
