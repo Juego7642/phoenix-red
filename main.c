@@ -265,6 +265,16 @@ typedef enum{
 	STATUS_SLEEP,
 	STATUS_FREEZE
 } StatusEffect;
+const char *GetStatusText(StatusEffect effect){
+	switch(effect){
+		case STATUS_POISON: return "PSN";
+		case STATUS_BURN: return "BRN";
+		case STATUS_PARALYSIS: return "PAR";
+		case STATUS_SLEEP: return "SLP";
+		case STATUS_FREEZE: return "FRZ";
+		default: return "";
+	}
+}
 typedef struct move move;
 struct move{
 	int BP; //Power, base damage used in the damage formula
@@ -294,7 +304,8 @@ struct Pokemon {
 	//
 	int special_attack;
 	int special_defense;
-	ElementalType type;
+	ElementalType type1;
+	ElementalType type2;
 	//evasiveness and accuracy are in-battle stats (always at 100% at start of match);
 	int evasiveness;
 	int accuracy;
@@ -330,8 +341,9 @@ int damage_calculator(Pokemon *pokemon, Pokemon *pokemonB, move *Move, double ra
 		(((((2 * pokemon->level) / 5.0 + 2)
 		* Move->BP
 		* pokemon->attack / pokemonB->defense) / 50.0 + 2)
-		* ((pokemon->type == Move->type) ? 1.5 : 1.0)
-		* type_effectiveness(Move->type, pokemonB->type)
+		* ((pokemon->type1 == Move->type) ? 1.5 : 1.0)
+		* type_effectiveness(Move->type, pokemonB->type1)
+		* type_effectiveness(Move->type, pokemonB->type2)
 		* random_factor)
 	);
     return damage;
@@ -344,10 +356,11 @@ int special_damage_calculator(Pokemon *pokemon,Pokemon *pokemonB, move *Move, do
         * Move->BP
         * pokemon->special_attack
         / pokemonB->special_defense) / 50.0 + 2)
-        * ((pokemon->type == Move->type) ? 1.5 : 1.0)
-        * type_effectiveness(Move->type, pokemonB->type)
+        * (((pokemon->type1 == Move->type)) || (pokemon->type2 == Move->type)) ? 1.5 : 1.0)
+        * type_effectiveness(Move->type, pokemonB->type1)
+		* type_effectiveness(Move->type, pokemonB->type2)
         * random_factor)
-    );
+    ;
 
     return damage;
 }
@@ -361,11 +374,11 @@ int get_move_weight(move Move, Pokemon target)
     }
 
     // Prevent invalid array index for TYPE_NONE
-    if (Move.type == TYPE_NONE || target.type == TYPE_NONE) {
+    if (Move.type == TYPE_NONE || target.type1 == TYPE_NONE) {
         return 0;
     }
 
-    int effectiveness = type_chart[Move.type - 1][target.type - 1];
+    int effectiveness = type_chart[Move.type - 1][target.type1 - 1] || type_chart[Move.type - 1][target.type2 - 1];
 	
     switch (effectiveness) {
         case 20:
@@ -398,10 +411,10 @@ void move_status_effect_processing(Pokemon *A, Pokemon *B, move *MoveA){
 			AddBattleMessage("Status effect applied\n");
 		}
 	}
-	if(MoveA->effect == STATUS_POISON){
+	if(MoveA->effect == STATUS_POISON && B->effect!=STATUS_NONE){
 		B->status_conditions_rounds_left = 15;
 	}
-	if(MoveA->effect == STATUS_SLEEP){
+	if(MoveA->effect == STATUS_SLEEP &&  B->effect!=STATUS_NONE){
 		B->status_conditions_rounds_left = 1+ rand() % 2;
 	}
 }
@@ -440,6 +453,7 @@ void status_effect_processing(Pokemon *A, Pokemon *B){
 	}
 	A->status_conditions_rounds_left -= 1;
 }
+
 void turn_processing(Pokemon *A, Pokemon *B, move *MoveA)
 {
 	if(!(A->effect == STATUS_SLEEP || (A->effect == STATUS_PARALYSIS && rand() % 100 <= 25) || A->effect == STATUS_FREEZE)){
@@ -482,12 +496,8 @@ void turn_processing(Pokemon *A, Pokemon *B, move *MoveA)
 			move_status_effect_processing(A,B,MoveA);
 		}
 		
-<<<<<<< HEAD
-		AddBattleMessage("%s took %d damage.\n\n", B->Name, minnn(B->current_health, damage));
-=======
 		AddBattleMessage("%s took %d damage.\n", B->Name, minnn(B->current_health, damage));
->>>>>>> 5d84fe0 (Update All files)
-		
+
 		B->current_health -= damage;
 		
 		if (B->current_health < 0)
@@ -495,7 +505,7 @@ void turn_processing(Pokemon *A, Pokemon *B, move *MoveA)
 		
 		
 		double effectiveness =
-        type_effectiveness(MoveA->type, B->type);
+        type_effectiveness(MoveA->type, B->type1) || type_effectiveness(MoveA->type, B->type2);
 		
 		if (effectiveness > 1.0)
         AddBattleMessage("It was super effective!\n");
@@ -508,54 +518,97 @@ void turn_processing(Pokemon *A, Pokemon *B, move *MoveA)
 }
 int main(){
 	srand(time(NULL));
-	move Tackle = {40, 100, 35, 35, "Tackle", TYPE_NORMAL, CATEGORY_PHYSICAL, STATUS_PARALYSIS, 100};
-	move Vine_Whip = {45, 100, 25, 25, "Vine Whip", TYPE_GRASS, CATEGORY_PHYSICAL};
-	move Scratch = {40, 100, 35, 35, "Scratch", TYPE_NORMAL, CATEGORY_PHYSICAL};
-	move Take_Down = {90, 85, 15, 15, "Take Down", TYPE_NORMAL, CATEGORY_PHYSICAL};
-	move Ember = {40, 100, 35, 35, "Ember", TYPE_FIRE, CATEGORY_PHYSICAL};
-	Pokemon Bulbasaur = {
-        .Name = "Bulbasaur",
-        .current_health = 45,
-        .max_health = 45,
-		.max_speed = 45,
-        .speed = 45,
-        .defense = 49,
-        .attack = 49,
-        .special_attack = 65,
-        .special_defense = 65,
-        .accuracy = 100,
-        .max_accuracy = 100,
-        .evasiveness = 100,
-        .type = TYPE_GRASS,
-        .max_evasiveness = 100,
-        .Moves = {Tackle, Scratch, Vine_Whip, Take_Down},
-        .level = 5,
-        .minor_status_effects = 0,
-		.effect = STATUS_NONE
-    };
-    Pokemon Charmander = {
-        .Name = "Charmander",
-        .current_health = 39,
-        .max_health = 39,
-		.max_speed = 25,
-        .speed = 25,
-        .defense = 25,
-        .attack = 25,
-        .special_attack = 25,
-        .special_defense = 25,
-        .accuracy = 100,
-        .max_accuracy = 100,
-        .evasiveness = 100,
-        .type = TYPE_FIRE,
-        .max_evasiveness = 100,
-        .Moves = {Tackle, Scratch, Ember, Take_Down},
-        .level = 5,
-        .minor_status_effects = 0,
-		.effect = STATUS_NONE
-    };
+	
+	move Vine_Whip = {.Name = "Vine Whip", .BP = 45, .Accuracy = 100, .Max_PP = 25, .Current_PP = 25, .type = TYPE_GRASS, .category = CATEGORY_PHYSICAL, .effect = STATUS_NONE};
+	move Razor_Leaf = {.Name = "Razor Leaf", .BP = 55, .Accuracy = 95, .Max_PP = 25, .Current_PP = 25, .type = TYPE_GRASS, .category = CATEGORY_PHYSICAL, .effect = STATUS_NONE};
+	move Sleep_Powder = {.Name = "Sleep Powder", .BP = 0, .Accuracy = 75, .Max_PP = 15, .Current_PP = 15, .type = TYPE_GRASS, .category = CATEGORY_STATUS, .effect = STATUS_SLEEP, 100};
+	move Poison_Powder = {.Name = "Poison Powder", .BP = 0, .Accuracy = 75, .Max_PP = 35, .Current_PP = 35, .type = TYPE_POISON, .category = CATEGORY_STATUS, .effect = STATUS_POISON, 100};
+	move Flamethrower = {.Name = "Flamethrower", .BP = 90, .Accuracy = 100, .Max_PP = 15, .Current_PP = 15, .type = TYPE_FIRE, .category = CATEGORY_SPECIAL, .effect = STATUS_NONE};
+	move Wing_Attack = {.Name = "Wing Attack", .BP = 60, .Accuracy = 100, .Max_PP = 35, .Current_PP = 35, .type = TYPE_FLYING, .category = CATEGORY_PHYSICAL, .effect = STATUS_BURN, 10};
+	move Metal_Claw = {.Name = "Metal Claw", .BP = 50, .Accuracy = 95, .Max_PP = 35, .Current_PP = 35, .type = TYPE_STEEL, .category = CATEGORY_PHYSICAL, .effect = STATUS_NONE};
+	move Slash = {.Name = "Slash", .BP = 70, .Accuracy = 100, .Max_PP = 20, .Current_PP = 20, .type = TYPE_NORMAL, .category = CATEGORY_PHYSICAL, .effect = STATUS_NONE};
+	move Crunch = {.Name = "Crunch", .BP = 80, .Accuracy = 100, .Max_PP = 15, .Current_PP = 15, .type = TYPE_DARK, .category = CATEGORY_PHYSICAL, .effect = STATUS_NONE};
+	move Dragon_Claw = {.Name = "Dragon Claw", .BP = 80, .Accuracy = 100, .Max_PP = 15, .Current_PP = 15, .type = TYPE_DRAGON, .category = CATEGORY_PHYSICAL, .effect = STATUS_NONE};
+	move ExtremeSpeed = {.Name = "Extreme Speed", .BP = 80, .Accuracy = 100, .Max_PP = 5, .Current_PP = 5, .type = TYPE_NORMAL, .category = CATEGORY_PHYSICAL, .effect = STATUS_NONE};
+
+	Pokemon Venusaur = {
+		.Name = "Venusaur", .max_health = 364, .current_health = 364, .max_speed = 284, .speed = 284,
+		.max_defense = 291, .defense = 291, .max_attack = 289, .attack = 289, .special_attack = 328, .special_defense = 328,
+		.type1 = TYPE_GRASS,.type2 = TYPE_POISON, .evasiveness = 100, .accuracy = 100, .max_evasiveness = 100, .max_accuracy = 100,
+		.Moves = {Vine_Whip, Razor_Leaf, Sleep_Powder, Poison_Powder}, .level = 100, .minor_status_effects = 0, .effect = STATUS_NONE, .status_conditions_rounds_left = 0
+	};
+	Pokemon Charizard = {
+		.Name = "Charizard", .max_health = 360, .current_health = 360, .max_speed = 328, .speed = 328,
+		.max_defense = 280, .defense = 280, .max_attack = 293, .attack = 293, .special_attack = 348, .special_defense = 295,
+		.type1 = TYPE_FIRE, .type2 = TYPE_FLYING, .evasiveness = 100, .accuracy = 100, .max_evasiveness = 100, .max_accuracy = 100,
+		.Moves = {Flamethrower, Wing_Attack, Metal_Claw, Slash}, .level = 100, .minor_status_effects = 0, .effect = STATUS_NONE, .status_conditions_rounds_left = 0
+	};
+
+	Pokemon Rayquaza = {
+		.Name = "Rayquaza", .max_health = 414, .current_health = 414, .max_speed = 317, .speed = 317,
+		.max_defense = 306, .defense = 306, .max_attack = 438, .attack = 438, .special_attack = 438, .special_defense = 306,
+		.type1 = TYPE_DRAGON, .type2 = TYPE_FLYING, .evasiveness = 100, .accuracy = 100, .max_evasiveness = 100, .max_accuracy = 100,
+		.Moves = {Flamethrower, Dragon_Claw, ExtremeSpeed, Crunch}, .level = 100, .minor_status_effects = 0, .effect = STATUS_NONE, .status_conditions_rounds_left = 0
+	};
+	// Pokemon Swampert = {
+	// 	.Name = "Swampert", .max_health = 404, .current_health = 404, .max_speed = 240, .speed = 240,
+	// 	.max_defense = 306, .defense = 306, .max_attack = 350, .attack = 350, .special_attack = 295, .special_defense = 306,
+	// 	.type = TYPE_WATER, .evasiveness = 100, .accuracy = 100, .max_evasiveness = 100, .max_accuracy = 100,
+	// 	.Moves = {Surf, Scratch, Tackle, (move){0}}, .level = 100, .minor_status_effects = 0, .effect = STATUS_NONE, .status_conditions_rounds_left = 0
+	// };
+
+	// Pokemon Darkrai = {
+	// 	.Name = "Darkrai", .max_health = 344, .current_health = 344, .max_speed = 383, .speed = 383,
+	// 	.max_defense = 306, .defense = 306, .max_attack = 306, .attack = 306, .special_attack = 405, .special_defense = 306,
+	// 	.type = TYPE_DARK, .evasiveness = 100, .accuracy = 100, .max_evasiveness = 100, .max_accuracy = 100,
+	// 	.Moves = {Scratch, Tackle, (move){0}, (move){0}}, .level = 100, .minor_status_effects = 0, .effect = STATUS_NONE, .status_conditions_rounds_left = 0
+	// };
+
+
+	// Pokemon Pikachu = {
+	// 	.Name = "Pikachu", .max_health = 274, .current_health = 274, .max_speed = 306, .speed = 306,
+	// 	.max_defense = 196, .defense = 196, .max_attack = 229, .attack = 229, .special_attack = 218, .special_defense = 218,
+	// 	.type = TYPE_ELECTRIC, .evasiveness = 100, .accuracy = 100, .max_evasiveness = 100, .max_accuracy = 100,
+	// 	.Moves = {Tackle, Scratch, (move){0}, (move){0}}, .level = 100, .minor_status_effects = 0, .effect = STATUS_NONE, .status_conditions_rounds_left = 0
+	// };
+
+	// Pokemon Lucario = {
+	// 	.Name = "Lucario", .max_health = 344, .current_health = 344, .max_speed = 306, .speed = 306,
+	// 	.max_defense = 262, .defense = 262, .max_attack = 350, .attack = 350, .special_attack = 361, .special_defense = 262,
+	// 	.type = TYPE_FIGHTING, .evasiveness = 100, .accuracy = 100, .max_evasiveness = 100, .max_accuracy = 100,
+	// 	.Moves = {Tackle, Scratch, (move){0}, (move){0}}, .level = 100, .minor_status_effects = 0, .effect = STATUS_NONE, .status_conditions_rounds_left = 0
+	// };
+
+	// Pokemon Alakazam = {
+	// 	.Name = "Alakazam", .max_health = 314, .current_health = 314, .max_speed = 372, .speed = 372,
+	// 	.max_defense = 207, .defense = 207, .max_attack = 218, .attack = 218, .special_attack = 405, .special_defense = 317,
+	// 	.type = TYPE_PSYCHIC, .evasiveness = 100, .accuracy = 100, .max_evasiveness = 100, .max_accuracy = 100,
+	// 	.Moves = {Tackle, (move){0}, (move){0}, (move){0}}, .level = 100, .minor_status_effects = 0, .effect = STATUS_NONE, .status_conditions_rounds_left = 0
+	// };
+
+	// Pokemon Articuno = {
+	// 	.Name = "Articuno", .max_health = 384, .current_health = 384, .max_speed = 295, .speed = 295,
+	// 	.max_defense = 328, .defense = 328, .max_attack = 295, .attack = 295, .special_attack = 317, .special_defense = 383,
+	// 	.type = TYPE_ICE, .evasiveness = 100, .accuracy = 100, .max_evasiveness = 100, .max_accuracy = 100,
+	// 	.Moves = {Tackle, (move){0}, (move){0}, (move){0}}, .level = 100, .minor_status_effects = 0, .effect = STATUS_NONE, .status_conditions_rounds_left = 0
+	// };
+
+	// Pokemon Arceus = {
+	// 	.Name = "Arceus", .max_health = 444, .current_health = 444, .max_speed = 372, .speed = 372,
+	// 	.max_defense = 372, .defense = 372, .max_attack = 372, .attack = 372, .special_attack = 372, .special_defense = 372,
+	// 	.type = TYPE_NORMAL, .evasiveness = 100, .accuracy = 100, .max_evasiveness = 100, .max_accuracy = 100,
+	// 	.Moves = {Tackle, (move){0}, (move){0}, (move){0}}, .level = 100, .minor_status_effects = 0, .effect = STATUS_NONE, .status_conditions_rounds_left = 0
+	// };
+
+	// Pokemon Weezing = {
+	// 	.Name = "Weezing", .max_health = 334, .current_health = 334, .max_speed = 240, .speed = 240,
+	// 	.max_defense = 350, .defense = 350, .max_attack = 306, .attack = 306, .special_attack = 295, .special_defense = 262,
+	// 	.type = TYPE_POISON, .evasiveness = 100, .accuracy = 100, .max_evasiveness = 100, .max_accuracy = 100,
+	// 	.Moves = {Tackle, Scratch, (move){0}, (move){0}}, .level = 100, .minor_status_effects = 0, .effect = STATUS_NONE, .status_conditions_rounds_left = 0
+	// };
 	context contxt;
-	contxt.a = Bulbasaur;
-	contxt.b = Charmander;
+	contxt.a = Venusaur;
+	contxt.b = Charizard;
 	//announce enemy pokemon
 	AddBattleMessage("Enemy pokemon appeared\n");
 	//announce player turn.
@@ -563,9 +616,9 @@ int main(){
 	InitWindow(800, 450, "Pokemon Battle");
 	SetTargetFPS(60);
 
-	Texture2D bulbasaurSprite = LoadTexture("bulbasaur_back.png");
+	Texture2D bulbasaurSprite = LoadTexture("venusaur_back.png");
 
-	Texture2D charmanderSprite = LoadTexture("charmander_front.png");
+	Texture2D charmanderSprite = LoadTexture("charizard_front.png");
 
 	int selectedMove = 0;
 
@@ -650,14 +703,21 @@ int main(){
 		//textbox
 		DrawBattleTextBox();
 
-		DrawTextureEx(bulbasaurSprite, (Vector2){90, 190}, 0.0f, 3.0f, WHITE);
-		DrawTextureEx(charmanderSprite, (Vector2){560, 40},0.0f, 3.0f, WHITE);
+		DrawTextureEx(bulbasaurSprite, (Vector2){90, 190}, 0.0f, 2.0f, WHITE);
+		DrawTextureEx(charmanderSprite, (Vector2){560, 40},0.0f, 2.0f, WHITE);
 
 		DrawText(TextFormat("%s  Lv.%d", contxt.b.Name, contxt.b.level),50, 40, 25, BLACK);
+		//DrawText(contxt.b.Name, 50, 40, 25, BLACK);
+		if(contxt.b.effect != STATUS_NONE){
+			DrawText(GetStatusText(contxt.b.effect), 150 + MeasureText(contxt.b.Name, 25) + 10, 43, 18, GRAY);
+		}
 		DrawText(TextFormat("HP: %d/%d", displayedEnemyHP, contxt.b.max_health),50, 70, 22, BLACK);
 
 		/* Player real stats */
 		DrawText(TextFormat("%s  Lv.%d",contxt.a.Name,contxt.a.level),500, 240, 25, BLACK);
+		if(contxt.a.effect != STATUS_NONE){
+			DrawText(GetStatusText(contxt.a.effect), 600 + MeasureText(contxt.a.Name, 25) + 10, 243, 18, GRAY);	
+		}
 		DrawText(TextFormat("HP: %d/%d",displayedPlayerHP, contxt.a.max_health),500, 270, 22, BLACK);
 
 		Vector2 positions[4] = {
@@ -713,8 +773,5 @@ int main(){
 	CloseWindow();
 
 	return 0;
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 5d84fe0 (Update All files)
+
