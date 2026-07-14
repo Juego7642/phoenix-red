@@ -103,6 +103,10 @@ struct move{
 	char Name[100];
 	ElementalType type;
 	MoveCategory category;
+	StatusEffect effect; 
+	int probability; //probability of status effect occuring (0-100)
+	int status_effect_condition_rounds_left; //useful for status effects that wear off after limited rounds like sleep
+
 };
 struct Pokemon {
 	char Name[100];
@@ -110,8 +114,11 @@ struct Pokemon {
 	int max_health;
 	//
 	int current_health;
+	int max_speed;
 	int speed;
+	int max_defense;
 	int defense;
+	int max_attack;
 	int attack;
 	//
 	int special_attack;
@@ -128,7 +135,8 @@ struct Pokemon {
 	//status effects
 	int minor_status_effects;
 	StatusEffect effect;
-
+	int status_conditions_rounds_left;\
+	//
 };
 typedef struct BattleContext context;
 
@@ -144,8 +152,7 @@ double type_effectiveness(ElementalType typeA, ElementalType typeB){
 	double effectiveness = type_chart[typeA-1][typeB-1]/10.0;
 	return effectiveness;
 }
-int damage_calculator(Pokemon *pokemon, Pokemon *pokemonB,
-                      move *Move, double random_factor)
+int damage_calculator(Pokemon *pokemon, Pokemon *pokemonB, move *Move, double random_factor)
 {
 	if (pokemonB->defense <= 0) pokemonB->defense = 1;
 	int damage = (int)(
@@ -158,8 +165,7 @@ int damage_calculator(Pokemon *pokemon, Pokemon *pokemonB,
 	);
     return damage;
 }
-int special_damage_calculator(Pokemon *pokemon,Pokemon *pokemonB,
-                              move *Move, double random_factor)
+int special_damage_calculator(Pokemon *pokemon,Pokemon *pokemonB, move *Move, double random_factor)
 {
 	if (pokemonB->special_defense <= 0) pokemonB->special_defense = 1;
     int damage = (int)(
@@ -177,16 +183,9 @@ int special_damage_calculator(Pokemon *pokemon,Pokemon *pokemonB,
 
 int get_move_weight(move Move, Pokemon target)
 {
+	int weight = 0;
+
     if (Move.Current_PP <= 0) {
-        return 0;
-    }
-
-    // Ignore status moves for now
-    if (Move.category == CATEGORY_STATUS) {
-        return 0;
-    }
-
-    if (Move.BP <= 0) {
         return 0;
     }
 
@@ -195,85 +194,146 @@ int get_move_weight(move Move, Pokemon target)
         return 0;
     }
 
-    int effectiveness =
-        type_chart[Move.type - 1][target.type - 1];
-
+    int effectiveness = type_chart[Move.type - 1][target.type - 1];
+	
     switch (effectiveness) {
         case 20:
-            return 40;
-
+            weight += 40;
+			break;
         case 10:
-            return 10;
-
+            weight += 10;
+			break;
         case 5:
-            return 2;
-
+            weight += 2;
+			break;
         case 0:
-            return 0;
-
-        default:
-            return 10;
+            weight += 0;
+			break;
     }
+	if(Move.effect != STATUS_NONE && target.effect == STATUS_NONE){
+		weight += 70;
+		//zero truncation!!!
+		weight = (weight*Move.probability)/100;
+	}
+	weight = (weight * (100-(rand() % 25)))/100;
+	return weight;
+}
+
+void move_status_effect_processing(Pokemon *A, Pokemon *B, move *MoveA){
+	int roll = rand() % 100;
+	if(MoveA->effect != STATUS_NONE){
+		if(B->effect == STATUS_NONE && roll <= MoveA->probability){
+			B->effect = MoveA->effect;
+			printf("Status effect applied\n");
+		}
+	}
+	if(MoveA->effect == STATUS_POISON){
+		B->status_conditions_rounds_left = 15;
+	}
+	if(MoveA->effect == STATUS_SLEEP){
+		B->status_conditions_rounds_left = 1+ rand() % 2;
+	}
+}
+void status_effect_processing(Pokemon *A, Pokemon *B){
+	if(A->effect == STATUS_BURN){
+		A->current_health -= A->max_health/16;
+		printf("%s: %d Damage taken from BURN effect\n", A->Name, A->max_health/16);
+	}
+	if(A->effect == STATUS_POISON){
+		int dam = (16-A->status_conditions_rounds_left)*A->max_health/16;
+		if(A->status_conditions_rounds_left > 0)
+			A->current_health -= dam;
+		else
+			A->current_health -= 15 * A->max_health/16;
+		printf("%s: %d Damage taken from POISON effect\n", A->Name, dam);
+	}
+	if(A->effect == STATUS_SLEEP){
+		printf("%s is still sleeping.\n", A->Name);
+		if(A->status_conditions_rounds_left <= 0){
+			A->effect = STATUS_NONE;
+			printf("\n%s woke up!\n", A->Name);
+		}
+	}
+	if(A->effect == STATUS_PARALYSIS){
+		printf("%s is paralyzed and may not be able to move!\n", A->Name);
+		A->speed = (75 * A->max_speed)/100;
+	}
+	if(A->effect == STATUS_FREEZE){
+		int roll = rand() % 256;
+		if(roll <= 25){
+			printf("%s thawed and can move again!\n", A->Name);
+			A->effect = STATUS_NONE;
+		}else{
+			printf("%s is still frozen and can't do anything\n", A->Name);
+		}
+	}
+	A->status_conditions_rounds_left -= 1;
 }
 void turn_processing(Pokemon *A, Pokemon *B, move *MoveA)
 {
-    if (MoveA->Current_PP <= 0) {
-        printf("%s has no PP left!\n", MoveA->Name);
-        return;
-    }
+	if(!(A->effect == STATUS_SLEEP || (A->effect == STATUS_PARALYSIS && rand() % 100 <= 25) || A->effect == STATUS_FREEZE)){
 
-    printf("\n%s used %s!\n", A->Name, MoveA->Name);
-
-    MoveA->Current_PP--;
-	if (B->evasiveness <= 0) B->evasiveness = 1;
-    int accuracy = MoveA->Accuracy * A->accuracy / B->evasiveness;
-
-    if (accuracy > 100)
+		if (MoveA->Current_PP <= 0) {
+			printf("%s has no PP left!\n", MoveA->Name);
+			return;
+		}
+		
+		printf("\n%s used %s!\n", A->Name, MoveA->Name);
+		
+		MoveA->Current_PP--;
+		if (B->evasiveness <= 0) B->evasiveness = 1;
+		int accuracy = MoveA->Accuracy 	* A->accuracy / B->evasiveness;
+		
+		if (accuracy > 100)
         accuracy = 100;
-
-    if (rand() % 100 >= accuracy) {
-        printf("%s's attack missed!\n", A->Name);
-        return;
-    }
-
-    double random_factor =
+		
+		if (rand() % 100 >= accuracy) {
+			printf("%s's attack missed!\n", A->Name);
+			return;
+		}
+		
+		double random_factor =
         ((rand() % 39) + 217) / 255.0;
-
-    int damage = 0;
-
-    if (MoveA->category == CATEGORY_PHYSICAL) {
-        damage = damage_calculator(A, B, MoveA, random_factor);
-    }
-    else if (MoveA->category == CATEGORY_SPECIAL) {
-        damage = special_damage_calculator(A, B, MoveA, random_factor);
-    }
-    else {
-        printf("Status moves are not implemented yet.\n");
-        return;
-    }
-
-	printf("%s took %d damage.\n\n", B->Name, minnn(B->current_health, damage));
-
-    B->current_health -= damage;
-
-    if (B->current_health < 0)
+		
+		int damage = 0;
+		
+		if (MoveA->category == CATEGORY_PHYSICAL) {
+			damage = damage_calculator(A, B, MoveA, random_factor);
+			move_status_effect_processing(A,B,MoveA);
+		}
+		else if (MoveA->category == CATEGORY_SPECIAL) {
+			damage = special_damage_calculator(A, B, MoveA, random_factor);
+			move_status_effect_processing(A,B,MoveA);
+		}
+		else {
+			//printf("Status moves are not implemented yet.\n");
+			//implement status calculaations
+			move_status_effect_processing(A,B,MoveA);
+		}
+		
+		printf("%s took %d damage.\n\n", B->Name, minnn(B->current_health, damage));
+		
+		B->current_health -= damage;
+		
+		if (B->current_health < 0)
         B->current_health = 0;
-	
-
-    double effectiveness =
+		
+		
+		double effectiveness =
         type_effectiveness(MoveA->type, B->type);
-
-    if (effectiveness > 1.0)
+		
+		if (effectiveness > 1.0)
         printf("It was super effective!\n");
-    else if (effectiveness == 0.0)
+		else if (effectiveness == 0.0)
         printf("It had no effect!\n");
-    else if (effectiveness < 1.0)
+		else if (effectiveness < 1.0)
         printf("It was not very effective!\n");
+	}
 
 }
 int main(){
 	srand(time(NULL));
-	move Tackle = {40, 100, 35, 35, "Tackle", TYPE_NORMAL, CATEGORY_PHYSICAL};
+	move Tackle = {40, 100, 35, 35, "Tackle", TYPE_NORMAL, CATEGORY_PHYSICAL, STATUS_SLEEP, 50};
 	move Vine_Whip = {45, 100, 25, 25, "Vine Whip", TYPE_GRASS, CATEGORY_PHYSICAL};
 	move Scratch = {40, 100, 35, 35, "Scratch", TYPE_NORMAL, CATEGORY_PHYSICAL};
 	move Take_Down = {90, 85, 15, 15, "Take Down", TYPE_NORMAL, CATEGORY_PHYSICAL};
@@ -282,6 +342,7 @@ int main(){
         .Name = "Bulbasaur",
         .current_health = 45,
         .max_health = 45,
+		.max_speed = 45,
         .speed = 45,
         .defense = 49,
         .attack = 49,
@@ -294,12 +355,14 @@ int main(){
         .max_evasiveness = 100,
         .Moves = {Tackle, Scratch, Vine_Whip, Take_Down},
         .level = 5,
-        .minor_status_effects = 0
+        .minor_status_effects = 0,
+		.effect = STATUS_NONE
     };
     Pokemon Charmander = {
         .Name = "Charmander",
         .current_health = 39,
         .max_health = 39,
+		.max_speed = 25,
         .speed = 25,
         .defense = 25,
         .attack = 25,
@@ -312,7 +375,8 @@ int main(){
         .max_evasiveness = 100,
         .Moves = {Tackle, Scratch, Ember, Take_Down},
         .level = 5,
-        .minor_status_effects = 0
+        .minor_status_effects = 0,
+		.effect = STATUS_NONE
     };
 	context contxt;
 	contxt.a = Bulbasaur;
@@ -339,12 +403,17 @@ int main(){
 		int valid = 0;
 		
 		while (!valid) {
+			//check if we are asleep or paralyzed
+			if(contxt.a.effect == STATUS_SLEEP || (contxt.a.effect == STATUS_PARALYSIS && rand() % 100 <= 25)){
+				contxt.player_a_active_move = NULL;
+				break;
+			}
 		    printf("Enter move number: ");
 		    scanf("%d", &zzz);
 			if(((zzz>=1) && (zzz<=4)) && contxt.a.Moves[zzz-1].Current_PP>0) {
-					contxt.player_a_active_move = &contxt.a.Moves[zzz-1];
-		            valid = 1;
-		        	break;
+				contxt.player_a_active_move = &contxt.a.Moves[zzz-1];
+		    	valid = 1;
+		        break;
 			}
 		    //     if (contxt.a.Moves[i].Current_PP > 0) {
 		    //         contxt.player_a_active_move =
@@ -417,13 +486,15 @@ int main(){
 			// Player attacks second
 			turn_processing(&contxt.a, &contxt.b,
 							contxt.player_a_active_move);
-
+			
 			if (contxt.b.current_health <= 0) {
 				printf("%s fainted!\n", contxt.b.Name);
 				break;
 			}
 			delay_ms(1000);
 		}
+		status_effect_processing(&contxt.a, &contxt.b);
+		status_effect_processing(&contxt.b, &contxt.a);
 		//assign that move to active
 		// if (contxt.b.current_health <= 0) {
 		// 	printf("%s fainted.\n", contxt.b.Name);
@@ -445,6 +516,4 @@ int main(){
 		//this goes on until one of them dies
 	return 0;
 }
-
-
 
